@@ -2,7 +2,7 @@ import * as a1lib from "alt1/base";
 import * as OCR from "alt1/ocr";
 import { ImgRef, webpackImages } from "alt1/base";
 
-var imgs_rs3 = webpackImages({
+var imgs = webpackImages({
   chatimg: require("./imgs/chatimg.data.png"),
   chatimghover: require("./imgs/chatimghover.data.png"),
   chatimgactive: require("./imgs/chatimgactive.data.png"),
@@ -10,16 +10,6 @@ var imgs_rs3 = webpackImages({
   continueimgdown: require("./imgs/continueimgdown.data.png"),
   boxtl: require("./imgs/boxtl.data.png"),
   boxtr: require("./imgs/boxtr.data.png"),
-});
-
-var imgs_leg = webpackImages({
-  chatimg: require("./imgs/chatimg_leg.data.png"),
-  chatimghover: require("./imgs/chatimghover_leg.data.png"),
-  chatimgactive: require("./imgs/chatimgactive_leg.data.png"),
-  continueimg: require("./imgs/continueimg_leg.data.png"),
-  continueimgdown: require("./imgs/continueimgdown_leg.data.png"),
-  boxtl: require("./imgs/boxtl_leg.data.png"),
-  boxtr: require("./imgs/boxtr_leg.data.png"),
 });
 
 var fontmono = require("../fonts/aa_8px_mono.fontmeta.json");
@@ -48,19 +38,25 @@ export default class DialogReader {
       return null;
     }
 
-    var boxes: (a1lib.PointLike & { legacy: boolean })[] = [];
-    for (let imgs of [imgs_rs3, imgs_leg]) {
-      var pos = imgref.findSubimage(imgs.boxtl);
+    var boxes: (a1lib.PointLike & { legacy: boolean; width: number })[] = [];
 
-      for (var a in pos) {
-        var p = pos[a];
-        if (
-          imgref.findSubimage(imgs.boxtr, p.x + 502, p.y, 16, 16).length != 0
-        ) {
-          boxes.push({ ...p, legacy: imgs == imgs_leg });
-        }
+    var pos = imgref.findSubimage(imgs.boxtl);
+
+    for (var a in pos) {
+      var p = pos[a];
+
+      // Try normal width (522px, boxtr at +506)
+      if (imgref.findSubimage(imgs.boxtr, p.x + 506, p.y, 16, 16).length != 0) {
+        boxes.push({ ...p, legacy: false, width: 522 });
+      }
+      // Try legacy interface width (552px, boxtr at +536)
+      else if (
+        imgref.findSubimage(imgs.boxtr, p.x + 536, p.y, 16, 16).length != 0
+      ) {
+        boxes.push({ ...p, legacy: true, width: 552 });
       }
     }
+
     if (boxes.length == 0) {
       return false;
     }
@@ -72,7 +68,7 @@ export default class DialogReader {
     this.pos = {
       x: box.x + 1,
       y: box.y + 1,
-      width: 518,
+      width: box.width,
       height: 130,
       legacy: box.legacy,
     };
@@ -155,7 +151,6 @@ export default class DialogReader {
       throw new Error("position not found yet");
     }
     var locs: a1lib.PointLike[] = [];
-    let imgs = this.pos.legacy ? imgs_leg : imgs_rs3;
     locs = locs.concat(
       imgref.findSubimage(
         imgs.continueimg,
@@ -234,7 +229,6 @@ export default class DialogReader {
     if (!this.pos) {
       throw new Error("position not found yet");
     }
-    let imgs = this.pos.legacy ? imgs_leg : imgs_rs3;
 
     var a = imgref.findSubimage(imgs.chatimg);
     for (var b in a) {
