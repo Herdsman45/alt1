@@ -12,7 +12,9 @@ globalThis.a1lib = a1lib;
 // globalThis.match = false;
 
 let tests = webpackImages({
+	test1_leg: import("./imgs/test1_leg.data.png"),
 	test1: import("./imgs/test1.data.png"),
+	test2_leg: import("./imgs/test2_leg.data.png"),
 	test2: import("./imgs/test2.data.png"),
 	test3: import("./imgs/test3.data.png"),
 	test4: import("./imgs/test4.data.png"),
@@ -20,7 +22,9 @@ let tests = webpackImages({
 	test6: import("./imgs/test6.data.png"),
 	test7: import("./imgs/test7.data.png"),
 	test8: import("./imgs/test8.data.png"),
-	test9: import("./imgs/test9.data.png")
+	test9: import("./imgs/test9.data.png"),
+	test10: import("./imgs/test10.data.png"),
+	test10_leg: import("./imgs/test10_leg.data.png"),
 });
 
 export default async function run() {
