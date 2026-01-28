@@ -2,24 +2,14 @@ import * as a1lib from "alt1/base";
 import * as OCR from "alt1/ocr";
 import { ImgRef, webpackImages } from "alt1/base";
 
-var imgs_rs3 = webpackImages({
+var imgs = webpackImages({
 	chatimg: require("./imgs/chatimg.data.png"),
 	chatimghover: require("./imgs/chatimghover.data.png"),
 	chatimgactive: require("./imgs/chatimgactive.data.png"),
 	continueimg: require("./imgs/continueimg.data.png"),
 	continueimgdown: require("./imgs/continueimgdown.data.png"),
 	boxtl: require("./imgs/boxtl.data.png"),
-	boxtr: require("./imgs/boxtr.data.png")
-});
-
-var imgs_leg = webpackImages({
-	chatimg: require("./imgs/chatimg_leg.data.png"),
-	chatimghover: require("./imgs/chatimghover_leg.data.png"),
-	chatimgactive: require("./imgs/chatimgactive_leg.data.png"),
-	continueimg: require("./imgs/continueimg_leg.data.png"),
-	continueimgdown: require("./imgs/continueimgdown_leg.data.png"),
-	boxtl: require("./imgs/boxtl_leg.data.png"),
-	boxtr: require("./imgs/boxtr_leg.data.png")
+	boxtr: require("./imgs/boxtr.data.png"),
 });
 
 var fontmono = require("../fonts/aa_8px_mono.fontmeta.json");
@@ -35,22 +25,30 @@ export default class DialogReader {
 		if (!imgref) { imgref = a1lib.captureHoldFullRs(); }
 		if (!imgref) { return null; }
 
-		var boxes: (a1lib.PointLike & { legacy: boolean })[] = [];
-		for (let imgs of [imgs_rs3, imgs_leg]) {
-			var pos = imgref.findSubimage(imgs.boxtl);
+		var boxes: (a1lib.PointLike & { legacy: boolean; width: number; height: number })[] = [];
 
-			for (var a in pos) {
-				var p = pos[a];
-				if (imgref.findSubimage(imgs.boxtr, p.x + 492, p.y, 16, 16).length != 0) {
-					boxes.push({ ...p, legacy: imgs == imgs_leg });
-				}
+		var pos = imgref.findSubimage(imgs.boxtl);
+
+		for (var a in pos) {
+			var p = pos[a];
+
+			// Try normal width (522px, boxtr at +506)
+			if (imgref.findSubimage(imgs.boxtr, p.x + 506, p.y, 16, 16).length != 0) {
+				boxes.push({ ...p, legacy: false, width: 522, height: 146 });
+			}
+			// Try legacy interface width (552px, boxtr at +536)
+			else if (
+				imgref.findSubimage(imgs.boxtr, p.x + 536, p.y, 16, 16).length != 0
+			) {
+				boxes.push({ ...p, legacy: true, width: 552, height: 161 });
 			}
 		}
-		if (boxes.length == 0) { return false; }
+
+		if (boxes.length == 0) { return false;}
 		var box = boxes[0];
 		if (boxes.length > 1) { console.log("More than one dialog box found"); }
 
-		this.pos = { x: box.x + 1, y: box.y + 1, width: 506, height: 130, legacy: box.legacy };
+		this.pos = {x: box.x + 1, y: box.y + 1,	width: box.width, height: box.height, legacy: box.legacy,};
 		return this.pos;
 	}
 
@@ -90,16 +88,15 @@ export default class DialogReader {
 		if (!this.pos) { throw new Error("position not found yet"); }
 		var buf = imgref.toData(this.pos.x, this.pos.y, this.pos.width, 32);
 		//somehow y coord can change, 19 for "choose and option:" 18 for npc names
-		var pos = OCR.findChar(buf, fontheavy, [255, 203, 5], Math.round(this.pos.width / 2) - 10, 16, 20, 4);
+		var pos = OCR.findChar(buf, fontheavy, [240, 190, 121], Math.round(this.pos.width / 2) - 10, 22, 20, 4);
 		if (!pos) { return ""; }
-		var read = OCR.readSmallCapsBackwards(buf, fontheavy, [[255, 203, 5]], Math.round(this.pos.width / 2) - 10, pos.y, 150, 1);
+		var read = OCR.readSmallCapsBackwards(buf, fontheavy, [[240, 190, 121]], Math.round(this.pos.width / 2) - 10, pos.y, 150, 1);
 		return read.text.toLowerCase();//normalize case since we don't actually know the original
 	}
 
 	checkDialog(imgref: ImgRef) {
 		if (!this.pos) { throw new Error("position not found yet"); }
 		var locs: a1lib.PointLike[] = [];
-		let imgs = (this.pos.legacy ? imgs_leg : imgs_rs3);
 		locs = locs.concat(imgref.findSubimage(imgs.continueimg, this.pos.x - imgref.x, this.pos.y - imgref.y, this.pos.width, this.pos.height));
 		locs = locs.concat(imgref.findSubimage(imgs.continueimgdown, this.pos.x - imgref.x, this.pos.y - imgref.y, this.pos.width, this.pos.height));
 		return locs.length != 0;
@@ -112,29 +109,48 @@ export default class DialogReader {
 		if (!checked) { checked = this.checkDialog(imgref); }
 		if (!checked) { return null; }
 
-
 		var lines: string[] = [];
-		var buf = imgref.toData(this.pos.x, this.pos.y + 33, this.pos.width, 80);
-		for (var y = 0; y < buf.height; y++) {
-			var hastext = false;
-			for (var x = 200; x < 300; x++) {
-				var i = x * 4 + y * 4 * buf.width;
-				if (buf.data[i] + buf.data[i + 1] + buf.data[i + 2] < 50) {
-					hastext = true;
+		var buf = imgref.toData(this.pos.x, this.pos.y + 50, this.pos.width, 61);
+		
+		// Calculate center position for text search based on dialog width
+		var centerX = Math.round(this.pos.width / 2) - 6;
+		
+		// Try to find first line at one of the strategic positions
+		var startPositions = [6, 19, 27, 35];
+		var firstY: number | null = null;
+		
+		for (var startY of startPositions) {
+			var chr: OCR.ReadCharInfo | null = null;
+			chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], 192, startY, 12, 3);
+			chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], centerX, startY, 12, 3);
+			chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], 310, startY, 12, 3);
+			
+			if (chr) {
+				var read = OCR.readLine(buf, fontmono2, [0, 0, 0], chr.x, chr.y, true, true);
+				if (read.text.length >= 3) {
+					lines.push(read.text);
+					firstY = chr.y;
 					break;
 				}
 			}
-			if (hastext) {
+		}
+		
+		// If we found the first line, look for subsequent lines at 16px intervals
+		if (firstY !== null) {
+			for (var i = 1; i < 4; i++) {
+				var nextY = firstY + (i * 16);
+				if (nextY >= buf.height) { break; }
+				
 				var chr: OCR.ReadCharInfo | null = null;
-				chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], 192, y + 5, 12, 3);
-				chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], 246, y + 5, 12, 3);
-				chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], 310, y + 5, 12, 3);
+				chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], 192, nextY, 12, 3);
+				chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], centerX, nextY, 12, 3);
+				chr = chr || OCR.findChar(buf, fontmono2, [0, 0, 0], 310, nextY, 12, 3);
+				
 				if (chr) {
 					var read = OCR.readLine(buf, fontmono2, [0, 0, 0], chr.x, chr.y, true, true);
 					if (read.text.length >= 3) {
 						lines.push(read.text);
 					}
-					y = chr.y + 5;
 				}
 			}
 		}
@@ -145,7 +161,6 @@ export default class DialogReader {
 	findOptions(imgref: ImgRef) {
 		var locs: DialogButtonLocation[] = [];
 		if (!this.pos) { throw new Error("position not found yet"); }
-		let imgs = (this.pos.legacy ? imgs_leg : imgs_rs3);
 
 		var a = imgref.findSubimage(imgs.chatimg);
 		for (var b in a) { locs.push({ x: a[b].x, y: a[b].y, hover: false, active: false }); }
@@ -175,7 +190,7 @@ export default class DialogReader {
 			var dx = locs[a].x + 30;
 			var dy = locs[a].y + 6;
 			var checkline = imgref.toData(dx, dy, Math.min(500, imgref.width - a), 1);
-			var row: typeof r[number] | null = null;
+			var row: (typeof r)[number] | null = null;
 			for (var x = 0; x < checkline.width; x++) {
 				var i = x * 4;
 
